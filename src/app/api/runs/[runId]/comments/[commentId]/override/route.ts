@@ -1,19 +1,18 @@
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
-function getBearer(req: Request) {
+function getBearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
   const m = h.match(/^Bearer\s+(.+)$/i);
   return m ? m[1] : null;
 }
 
 export async function POST(
-  req: Request,
-  { params }: { params: { runId: string; commentId: string } }
+  req: NextRequest,
+  context: { params: Promise<{ runId: string; commentId: string }> }
 ) {
   try {
-    const runId = params.runId;
-    const commentId = params.commentId;
+    const { runId, commentId } = await context.params;
 
     const token = getBearer(req);
     if (!token) return NextResponse.json({ error: "Missing token" }, { status: 401 });
@@ -47,14 +46,13 @@ export async function POST(
       override_payer,
       override_beneficiary,
       expectedVersion,
-    } = body;
+    } = body ?? {};
 
     if (typeof expectedVersion !== "number") {
       return NextResponse.json({ error: "expectedVersion required" }, { status: 400 });
     }
 
-    // Ensure override row exists; if not, create it with version=1.
-    // We'll read the current version and then apply optimistic update.
+    // Read existing override (if any)
     const { data: existing, error: eErr } = await supabaseAdmin
       .from("comment_overrides")
       .select("*")
@@ -67,11 +65,12 @@ export async function POST(
       return NextResponse.json({ error: "Failed to read override" }, { status: 500 });
     }
 
+    // If none exists, create it (version = 1)
     if (!existing) {
       const { error: insErr } = await supabaseAdmin.from("comment_overrides").insert({
         run_id: runId,
         comment_id: commentId,
-        skipped: !!skipped,
+        skipped: typeof skipped === "boolean" ? skipped : false,
         override_spots: override_spots ?? null,
         override_payer: override_payer ?? null,
         override_beneficiary: override_beneficiary ?? null,
@@ -84,18 +83,15 @@ export async function POST(
         return NextResponse.json({ error: "Failed to create override" }, { status: 500 });
       }
 
-      // If client expected something else, treat as conflict
+      // If the client expected an existing row, signal conflict
       if (expectedVersion !== 0) {
-        return NextResponse.json(
-          { error: "Conflict", latest: { version: 1 } },
-          { status: 409 }
-        );
+        return NextResponse.json({ error: "Conflict", latest: { version: 1 } }, { status: 409 });
       }
 
       return NextResponse.json({ ok: true, version: 1 });
     }
 
-    // Optimistic concurrency: only update if version matches expectedVersion
+    // Optimistic concurrency check
     if (existing.version !== expectedVersion) {
       return NextResponse.json(
         {
@@ -114,6 +110,7 @@ export async function POST(
 
     const newVersion = existing.version + 1;
 
+    // Update only if version matches (guards against races)
     const { error: upErr } = await supabaseAdmin
       .from("comment_overrides")
       .update({
