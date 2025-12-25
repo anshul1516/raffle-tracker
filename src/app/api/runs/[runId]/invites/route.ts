@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
@@ -12,21 +12,24 @@ function hashCode(code: string) {
 }
 
 export async function POST(
-  req: Request,
-  { params }: { params: { runId: string } }
+  req: NextRequest,
+  context: { params: Promise<{ runId: string }> }
 ) {
   try {
-    const runId = params.runId;
+    const { runId } = await context.params;
+
     const { adminCode, role, label } = await req.json();
 
-    if (!adminCode) return NextResponse.json({ error: "adminCode required" }, { status: 400 });
+    if (!adminCode) {
+      return NextResponse.json({ error: "adminCode required" }, { status: 400 });
+    }
     if (!role || !["viewer", "editor"].includes(role)) {
       return NextResponse.json({ error: "role must be viewer or editor" }, { status: 400 });
     }
 
     const adminHash = hashCode(String(adminCode).trim().toUpperCase());
 
-    // verify admin code exists
+    // Verify admin code exists
     const { data: codes, error } = await supabaseAdmin
       .from("run_access_codes")
       .select("*")
@@ -39,7 +42,9 @@ export async function POST(
       console.error(error);
       return NextResponse.json({ error: "Failed to verify admin code" }, { status: 500 });
     }
-    if (!codes || !codes.length) return NextResponse.json({ error: "Invalid admin code" }, { status: 401 });
+    if (!codes || !codes.length) {
+      return NextResponse.json({ error: "Invalid admin code" }, { status: 401 });
+    }
 
     const inviteCode = randomCode();
     const inviteHash = hashCode(inviteCode);

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
@@ -11,11 +11,12 @@ function randomToken(bytes = 32) {
 }
 
 export async function POST(
-  req: Request,
-  { params }: { params: { runId: string } }
+  req: NextRequest,
+  context: { params: Promise<{ runId: string }> }
 ) {
   try {
-    const runId = params.runId;
+    const { runId } = await context.params;
+
     const { code } = await req.json();
     if (!code || typeof code !== "string") {
       return NextResponse.json({ error: "code required" }, { status: 400 });
