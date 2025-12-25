@@ -1,161 +1,87 @@
-import { NextResponse } from "next/server";
-import crypto from "crypto";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { parseComment } from "@/lib/parser/parseComment";
-import { PARSER_VERSION } from "@/lib/parser/version";
+import { parseComment, PARSER_VERSION } from "@/lib/parser/parseComment";
+import { randomUUID } from "crypto";
 
-function normalizeUrl(u: string) {
-  return u.trim();
-}
-
-function parseRedditUrl(url: string) {
-  const match = url.match(/reddit\.com\/r\/([^/]+)\/comments\/([^/]+)/);
-  if (!match) return null;
-  return { subreddit: match[1], post_id: match[2] };
-}
-
-function extractTitleSpots(title: string): number | null {
-  // matches like "#100 spots" or "100 spots"
-  const m = title.match(/#?\s*(\d{1,5})\s*spots?\b/i);
-  if (!m) return null;
-  const n = parseInt(m[1], 10);
-  return Number.isFinite(n) ? n : null;
-}
-
-function extractRaffleToolBlock(postBody: string): string | null {
-  // you said closing tag can be </raffle-toll> (typo) — support both
-  const m = postBody.match(/<raffle-tool>([\s\S]*?)<\/raffle-(?:tool|toll)>/i);
-  if (!m) return null;
-  return m[1].trim();
-}
-
-async function fetchRedditPostAndComments(subreddit: string, postId: string) {
+async function fetchReddit(postId: string, subreddit: string) {
   const url = `https://www.reddit.com/r/${subreddit}/comments/${postId}.json?raw_json=1`;
-  const res = await fetch(url, { headers: { "User-Agent": "raffle-tracker/1.0" } });
-  if (!res.ok) throw new Error(`Reddit fetch failed: ${res.status}`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch Reddit");
 
   const json = await res.json();
-
-  const post = json?.[0]?.data?.children?.[0]?.data;
-  const title = post?.title ?? "";
-  const selftext = post?.selftext ?? "";
-
+  const post = json[0]?.data?.children?.[0]?.data;
   const comments =
-    json?.[1]?.data?.children
+    json[1]?.data?.children
       ?.filter((c: any) => c.kind === "t1")
       .map((c: any) => ({
-        comment_id: c.data.id,
+        id: c.data.id,
         author: c.data.author,
         body: c.data.body,
         permalink: `https://reddit.com${c.data.permalink}`,
-      })) || [];
+      })) ?? [];
 
-  return { title, selftext, comments };
+  return { post, comments };
 }
 
-function randomCode(bytes = 16) {
-  // human-friendly-ish code: XXXX-XXXX-XXXX
-  const raw = crypto.randomBytes(bytes).toString("hex").toUpperCase();
-  return `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}`;
-}
-
-function hashCode(code: string) {
-  return crypto.createHash("sha256").update(code).digest("hex");
-}
-
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const { url } = await req.json();
-    const postUrl = normalizeUrl(url || "");
-    const parsed = parseRedditUrl(postUrl);
-    if (!parsed) {
-      return NextResponse.json({ error: "Invalid Reddit post URL" }, { status: 400 });
+
+    const m = url?.match(/reddit\.com\/r\/([^/]+)\/comments\/([^/]+)/);
+    if (!m) {
+      return NextResponse.json({ error: "Invalid Reddit URL" }, { status: 400 });
     }
 
-    const { subreddit, post_id } = parsed;
+    const subreddit = m[1];
+    const post_id = m[2];
 
-    // Fetch Reddit
-    const { title, selftext, comments } = await fetchRedditPostAndComments(subreddit, post_id);
+    const { post, comments } = await fetchReddit(post_id, subreddit);
 
-    const totalSpotsFromTitle = extractTitleSpots(title);
-    const raffleToolBlock = extractRaffleToolBlock(selftext);
+    const runId = randomUUID();
+    const token = randomUUID();
 
-    // Create run
-    const { data: runRow, error: runErr } = await supabaseAdmin
-      .from("runs")
-      .insert({
-        subreddit,
-        post_id,
-        post_url: postUrl,
-        title,
-        total_spots_from_title: totalSpotsFromTitle,
-        raffle_tool_block: raffleToolBlock,
-        parser_version: PARSER_VERSION,
-      })
-      .select("*")
-      .single();
-
-    if (runErr || !runRow) {
-      console.error(runErr);
-      return NextResponse.json({ error: "Failed to create run" }, { status: 500 });
-    }
-
-    // Create admin invite code (shown once)
-    const adminCode = randomCode();
-    const adminHash = hashCode(adminCode);
-
-    const { error: codeErr } = await supabaseAdmin.from("run_access_codes").insert({
-      run_id: runRow.id,
-      code_hash: adminHash,
-      role: "admin",
-      label: "owner",
+    await supabaseAdmin.from("runs").insert({
+      id: runId,
+      subreddit,
+      post_id,
+      post_url: url,
+      title: post?.title ?? null,
+      parser_version: PARSER_VERSION,
     });
 
-    if (codeErr) {
-      console.error(codeErr);
-      return NextResponse.json({ error: "Failed to create admin code" }, { status: 500 });
-    }
+    await supabaseAdmin.from("run_access").insert({
+      run_id: runId,
+      token,
+    });
 
-    // Parse + upsert comments
-    const toUpsert = comments.map((c: any) => {
-      const parsedC = parseComment(c.body, c.author, c.comment_id);
+    const parsedRows = comments.map((c) => {
+      const parsed = parseComment(c.body, c.author, c.id);
       return {
-        run_id: runRow.id,
-        comment_id: c.comment_id,
-        post_id,
-        subreddit,
-        author: parsedC.author,
+        run_id: runId,
+        comment_id: c.id,
+        author: parsed.author,
         body: c.body,
         permalink: c.permalink,
-        spots: parsedC.spots,
-        payer: parsedC.payer,
-        beneficiary: parsedC.beneficiary,
-        is_tab: parsedC.isTab,
-        needs_review: parsedC.needsReview,
-        parsed: parsedC,
+        parsed,
+        spots: parsed.spots,
+        payer: parsed.payer,
+        beneficiary: parsed.beneficiary,
+        is_tab: parsed.isTab,
+        needs_review: parsed.needsReview,
       };
     });
 
-    if (toUpsert.length) {
-      const { error: upErr } = await supabaseAdmin.from("comments").upsert(toUpsert);
-      if (upErr) console.error("comments upsert error:", upErr);
+    if (parsedRows.length) {
+      await supabaseAdmin.from("comments").insert(parsedRows);
     }
 
-    const base =
-      process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") || "http://localhost:3000";
-    const shareUrl = `${base}/r/${runRow.id}`;
-
-    // Return shareUrl + the admin code (one-time)
     return NextResponse.json({
-      runId: runRow.id,
-      shareUrl,
-      adminCode,
-      title,
-      totalSpotsFromTitle,
-      raffleToolBlock,
+      runId,
+      token,
+      shareUrl: `/r/${runId}?t=${token}`,
     });
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }
