@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
+function t(db: any, table: string) {
+  return db.from(table) as any;
+}
+
 function hashCode(code: string) {
   return crypto.createHash("sha256").update(code).digest("hex");
 }
@@ -10,10 +14,7 @@ function randomToken(bytes = 32) {
   return crypto.randomBytes(bytes).toString("hex");
 }
 
-export async function POST(
-  req: NextRequest,
-  context: { params: Promise<{ runId: string }> }
-) {
+export async function POST(req: NextRequest, context: { params: Promise<{ runId: string }> }) {
   try {
     const { runId } = await context.params;
     const { code } = await req.json();
@@ -25,8 +26,7 @@ export async function POST(
     const db = supabaseAdmin();
     const codeHash = hashCode(code.trim().toUpperCase());
 
-    const { data: codes, error } = await db
-      .from("run_access_codes")
+    const { data: codes, error } = await t(db, "run_access_codes")
       .select("*")
       .eq("run_id", runId)
       .eq("code_hash", codeHash)
@@ -47,7 +47,7 @@ export async function POST(
     const token = randomToken();
     const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
 
-    const { error: sErr } = await db.from("run_sessions").insert({
+    const { error: sErr } = await t(db, "run_sessions").insert({
       run_id: runId,
       token,
       role: match.role,

@@ -25,6 +25,11 @@ function getBearer(req: NextRequest) {
   return m ? m[1] : null;
 }
 
+// Tiny helper to avoid Supabase "never" types when Database types aren't generated yet.
+function t(db: any, table: string) {
+  return db.from(table) as any;
+}
+
 export async function POST(
   req: NextRequest,
   context: { params: Promise<{ runId: string; commentId: string }> }
@@ -37,8 +42,8 @@ export async function POST(
 
     const db = supabaseAdmin();
 
-    const { data: sessionsData, error: sErr } = await db
-      .from("run_sessions")
+    // ---- auth ----
+    const { data: sessionsData, error: sErr } = await t(db, "run_sessions")
       .select("*")
       .eq("run_id", runId)
       .eq("token", token);
@@ -48,7 +53,7 @@ export async function POST(
       return NextResponse.json({ error: "Failed auth" }, { status: 500 });
     }
 
-    const session = ((sessionsData || []) as unknown as RunSessionRow[])[0];
+    const session = ((sessionsData || []) as RunSessionRow[])[0];
     if (!session) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
 
     const expMs = Date.parse(session.expires_at);
@@ -60,6 +65,7 @@ export async function POST(
       return NextResponse.json({ error: "Read-only token" }, { status: 403 });
     }
 
+    // ---- payload ----
     const body = await req.json();
     const { skipped, override_spots, override_payer, override_beneficiary, expectedVersion } = body ?? {};
 
@@ -67,8 +73,8 @@ export async function POST(
       return NextResponse.json({ error: "expectedVersion required" }, { status: 400 });
     }
 
-    const { data: existingData, error: eErr } = await db
-      .from("comment_overrides")
+    // ---- existing override ----
+    const { data: existingData, error: eErr } = await t(db, "comment_overrides")
       .select("*")
       .eq("run_id", runId)
       .eq("comment_id", commentId)
@@ -79,14 +85,15 @@ export async function POST(
       return NextResponse.json({ error: "Failed to read override" }, { status: 500 });
     }
 
-    const existing = (existingData ?? null) as unknown as CommentOverrideRow | null;
+    const existing = (existingData ?? null) as CommentOverrideRow | null;
 
+    // ---- insert ----
     if (!existing) {
       if (expectedVersion !== 0) {
         return NextResponse.json({ error: "Conflict" }, { status: 409 });
       }
 
-      const { error: insErr } = await db.from("comment_overrides").insert({
+      const { error: insErr } = await t(db, "comment_overrides").insert({
         run_id: runId,
         comment_id: commentId,
         skipped: typeof skipped === "boolean" ? skipped : false,
@@ -105,14 +112,14 @@ export async function POST(
       return NextResponse.json({ ok: true, version: 1 });
     }
 
+    // ---- optimistic concurrency ----
     if (existing.version !== expectedVersion) {
       return NextResponse.json({ error: "Conflict", latest: existing }, { status: 409 });
     }
 
     const newVersion = existing.version + 1;
 
-    const { error: upErr } = await db
-      .from("comment_overrides")
+    const { error: upErr } = await t(db, "comment_overrides")
       .update({
         skipped: typeof skipped === "boolean" ? skipped : existing.skipped,
         override_spots: typeof override_spots === "number" ? override_spots : existing.override_spots,

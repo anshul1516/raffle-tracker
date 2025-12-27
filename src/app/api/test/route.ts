@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
+function t(db: any, table: string) {
+  return db.from(table) as any;
+}
+
 export async function GET(_req: NextRequest) {
   try {
     const db = supabaseAdmin();
-    const { data, error } = await db.from("runs").select("id").limit(1);
+    const { data, error } = await t(db, "runs").select("id").limit(1);
 
     if (error) {
       console.error(error);

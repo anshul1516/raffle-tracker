@@ -4,6 +4,10 @@ import { supabaseAdmin } from "@/lib/supabase/server";
 import { parseComment } from "@/lib/parser/parseComment";
 import { PARSER_VERSION } from "@/lib/parser/version";
 
+function t(db: any, table: string) {
+  return db.from(table) as any;
+}
+
 function parseRedditUrl(url: string) {
   const match = url.match(/reddit\.com\/r\/([^/]+)\/comments\/([^/]+)/);
   if (!match) return null;
@@ -18,7 +22,6 @@ function extractTitleSpots(title: string): number | null {
 }
 
 function extractRaffleToolBlock(postBody: string): string | null {
-  // Accept typo closing tag </raffle-toll> too
   const m = postBody.match(/<raffle-tool>([\s\S]*?)<\/raffle-(?:tool|toll)>/i);
   if (!m) return null;
   return m[1].trim();
@@ -63,9 +66,7 @@ export async function POST(req: NextRequest) {
     const postUrl = (url || "").trim();
 
     const parsed = parseRedditUrl(postUrl);
-    if (!parsed) {
-      return NextResponse.json({ error: "Invalid Reddit post URL" }, { status: 400 });
-    }
+    if (!parsed) return NextResponse.json({ error: "Invalid Reddit post URL" }, { status: 400 });
 
     const { subreddit, post_id } = parsed;
     const { title, selftext, comments } = await fetchRedditPostAndComments(subreddit, post_id);
@@ -75,8 +76,7 @@ export async function POST(req: NextRequest) {
 
     const db = supabaseAdmin();
 
-    const { data: runRow, error: runErr } = await db
-      .from("runs")
+    const { data: runRow, error: runErr } = await t(db, "runs")
       .insert({
         subreddit,
         post_id,
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
     const adminCode = randomCode();
     const adminHash = hashCode(adminCode);
 
-    const { error: codeErr } = await db.from("run_access_codes").insert({
+    const { error: codeErr } = await t(db, "run_access_codes").insert({
       run_id: runRow.id,
       code_hash: adminHash,
       role: "admin",
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to create admin code" }, { status: 500 });
     }
 
-    // Upsert parsed comments
+    // Upsert comments
     const toUpsert = comments.map((c: any) => {
       const parsedC = parseComment(c.body, c.author, c.comment_id);
       return {
@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (toUpsert.length) {
-      const { error: upErr } = await db.from("comments").upsert(toUpsert);
+      const { error: upErr } = await t(db, "comments").upsert(toUpsert);
       if (upErr) console.error("comments upsert error:", upErr);
     }
 
