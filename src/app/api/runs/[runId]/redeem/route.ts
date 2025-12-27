@@ -23,7 +23,6 @@ export async function POST(
     }
 
     const db = supabaseAdmin();
-
     const codeHash = hashCode(code.trim().toUpperCase());
 
     const { data: codes, error } = await db

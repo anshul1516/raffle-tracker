@@ -18,6 +18,7 @@ function extractTitleSpots(title: string): number | null {
 }
 
 function extractRaffleToolBlock(postBody: string): string | null {
+  // Accept typo closing tag </raffle-toll> too
   const m = postBody.match(/<raffle-tool>([\s\S]*?)<\/raffle-(?:tool|toll)>/i);
   if (!m) return null;
   return m[1].trim();
@@ -38,6 +39,7 @@ async function fetchRedditPostAndComments(subreddit: string, postId: string) {
   if (!res.ok) throw new Error(`Reddit fetch failed: ${res.status}`);
 
   const json = await res.json();
+
   const post = json?.[0]?.data?.children?.[0]?.data;
   const title = post?.title ?? "";
   const selftext = post?.selftext ?? "";
@@ -59,6 +61,7 @@ export async function POST(req: NextRequest) {
   try {
     const { url } = await req.json();
     const postUrl = (url || "").trim();
+
     const parsed = parseRedditUrl(postUrl);
     if (!parsed) {
       return NextResponse.json({ error: "Invalid Reddit post URL" }, { status: 400 });
@@ -91,7 +94,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to create run" }, { status: 500 });
     }
 
-    // Create admin code
+    // Create admin access code (redeemable)
     const adminCode = randomCode();
     const adminHash = hashCode(adminCode);
 
@@ -108,7 +111,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to create admin code" }, { status: 500 });
     }
 
-    // Upsert comments
+    // Upsert parsed comments
     const toUpsert = comments.map((c: any) => {
       const parsedC = parseComment(c.body, c.author, c.comment_id);
       return {

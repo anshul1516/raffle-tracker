@@ -44,7 +44,6 @@ export async function GET(
       return NextResponse.json({ error: "Failed to load run" }, { status: 500 });
     }
 
-    // Fetch comments + override row (may be null)
     const { data: comments, error: cErr } = await db
       .from("comments")
       .select(
