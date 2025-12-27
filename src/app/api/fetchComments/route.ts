@@ -2,7 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
   try {
-    const { url } = await req.json();
+    const body = await req.json();
+
+    // Accept either:
+    //  - { url: "https://reddit.com/r/.../comments/..." }
+    //  - { subreddit, post_id } (legacy)
+    let url = (body?.url || "").trim();
+
+    if (!url && body?.subreddit && body?.post_id) {
+      url = `https://www.reddit.com/r/${body.subreddit}/comments/${body.post_id}/`;
+    }
+
     if (!url) return NextResponse.json({ error: "url required" }, { status: 400 });
 
     const res = await fetch(new URL("/api/runs", req.url), {

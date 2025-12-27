@@ -18,6 +18,9 @@ export async function GET(_req: NextRequest) {
     return NextResponse.json({ ok: true, sample: data || [] });
   } catch (err: any) {
     console.error(err);
-    return NextResponse.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: String(err?.message || err) },
+      { status: 500 }
+    );
   }
 }

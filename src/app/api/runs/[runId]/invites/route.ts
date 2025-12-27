@@ -15,7 +15,10 @@ function hashCode(code: string) {
   return crypto.createHash("sha256").update(code).digest("hex");
 }
 
-export async function POST(req: NextRequest, context: { params: Promise<{ runId: string }> }) {
+export async function POST(
+  req: NextRequest,
+  context: { params: Promise<{ runId: string }> }
+) {
   try {
     const { runId } = await context.params;
     const { adminCode, role, label } = await req.json();

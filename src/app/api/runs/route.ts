@@ -9,7 +9,7 @@ function t(db: any, table: string) {
 }
 
 function parseRedditUrl(url: string) {
-  const match = url.match(/reddit\.com\/r\/([^/]+)\/comments\/([^/]+)/);
+  const match = url.match(/reddit\.com\/r\/([^/]+)\/comments\/([^/]+)/i);
   if (!match) return null;
   return { subreddit: match[1], post_id: match[2] };
 }
@@ -22,6 +22,7 @@ function extractTitleSpots(title: string): number | null {
 }
 
 function extractRaffleToolBlock(postBody: string): string | null {
+  // accepts </raffle-tool> or the typo </raffle-toll>
   const m = postBody.match(/<raffle-tool>([\s\S]*?)<\/raffle-(?:tool|toll)>/i);
   if (!m) return null;
   return m[1].trim();
@@ -64,7 +65,6 @@ export async function POST(req: NextRequest) {
   try {
     const { url } = await req.json();
     const postUrl = (url || "").trim();
-
     const parsed = parseRedditUrl(postUrl);
     if (!parsed) return NextResponse.json({ error: "Invalid Reddit post URL" }, { status: 400 });
 
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to create run" }, { status: 500 });
     }
 
-    // Create admin access code (redeemable)
+    // Create admin access code (redeemable later)
     const adminCode = randomCode();
     const adminHash = hashCode(adminCode);
 
