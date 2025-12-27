@@ -27,10 +27,11 @@ export async function POST(
       return NextResponse.json({ error: "role must be viewer or editor" }, { status: 400 });
     }
 
+    const db = supabaseAdmin();
+
     const adminHash = hashCode(String(adminCode).trim().toUpperCase());
 
-    // Verify admin code exists
-    const { data: codes, error } = await supabaseAdmin
+    const { data: codes, error } = await db
       .from("run_access_codes")
       .select("*")
       .eq("run_id", runId)
@@ -49,11 +50,12 @@ export async function POST(
     const inviteCode = randomCode();
     const inviteHash = hashCode(inviteCode);
 
-    const { error: iErr } = await supabaseAdmin.from("run_access_codes").insert({
+    const { error: iErr } = await db.from("run_access_codes").insert({
       run_id: runId,
       code_hash: inviteHash,
       role,
       label: label || null,
+      revoked: false,
     });
 
     if (iErr) {

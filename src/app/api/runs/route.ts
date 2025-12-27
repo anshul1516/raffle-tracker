@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { parseComment } from "@/lib/parser/parseComment";
 import { PARSER_VERSION } from "@/lib/parser/version";
-import crypto from "crypto";
 
 function parseRedditUrl(url: string) {
   const match = url.match(/reddit\.com\/r\/([^/]+)\/comments\/([^/]+)/);
@@ -65,13 +65,14 @@ export async function POST(req: NextRequest) {
     }
 
     const { subreddit, post_id } = parsed;
-
     const { title, selftext, comments } = await fetchRedditPostAndComments(subreddit, post_id);
 
     const totalSpotsFromTitle = extractTitleSpots(title);
     const raffleToolBlock = extractRaffleToolBlock(selftext);
 
-    const { data: runRow, error: runErr } = await supabaseAdmin
+    const db = supabaseAdmin();
+
+    const { data: runRow, error: runErr } = await db
       .from("runs")
       .insert({
         subreddit,
@@ -90,15 +91,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to create run" }, { status: 500 });
     }
 
-    // create admin code
+    // Create admin invite code
     const adminCode = randomCode();
     const adminHash = hashCode(adminCode);
 
-    const { error: codeErr } = await supabaseAdmin.from("run_access_codes").insert({
+    const { error: codeErr } = await db.from("run_access_codes").insert({
       run_id: runRow.id,
       code_hash: adminHash,
       role: "admin",
       label: "owner",
+      revoked: false,
     });
 
     if (codeErr) {
@@ -106,7 +108,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to create admin code" }, { status: 500 });
     }
 
-    // upsert comments
+    // Upsert parsed comments into comments table
     const toUpsert = comments.map((c: any) => {
       const parsedC = parseComment(c.body, c.author, c.comment_id);
       return {
@@ -127,13 +129,12 @@ export async function POST(req: NextRequest) {
     });
 
     if (toUpsert.length) {
-      const { error: upErr } = await supabaseAdmin.from("comments").upsert(toUpsert);
+      const { error: upErr } = await db.from("comments").upsert(toUpsert);
       if (upErr) console.error("comments upsert error:", upErr);
     }
 
-    const base =
-      process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") || "http://localhost:3000";
-    const shareUrl = `${base}/r/${runRow.id}`;
+    const base = (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/$/, "");
+    const shareUrl = base ? `${base}/r/${runRow.id}` : `/r/${runRow.id}`;
 
     return NextResponse.json({
       runId: runRow.id,

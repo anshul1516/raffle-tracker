@@ -24,8 +24,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "expectedVersion required" }, { status: 400 });
     }
 
-    // verify session token
-    const { data: sessions, error: sErr } = await supabaseAdmin
+    const db = supabaseAdmin();
+
+    const { data: sessions, error: sErr } = await db
       .from("run_sessions")
       .select("*")
       .eq("run_id", runId)
@@ -44,8 +45,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Read-only token" }, { status: 403 });
     }
 
-    // load existing override
-    const { data: existing, error: eErr } = await supabaseAdmin
+    const { data: existing, error: eErr } = await db
       .from("comment_overrides")
       .select("*")
       .eq("run_id", runId)
@@ -65,7 +65,8 @@ export async function POST(req: NextRequest) {
       if (expectedVersion !== 0) {
         return NextResponse.json({ error: "Conflict" }, { status: 409 });
       }
-      const { error: insErr } = await supabaseAdmin.from("comment_overrides").insert({
+
+      const { error: insErr } = await db.from("comment_overrides").insert({
         run_id: runId,
         comment_id: commentId,
         ...patch,
@@ -77,6 +78,7 @@ export async function POST(req: NextRequest) {
         console.error(insErr);
         return NextResponse.json({ error: "Failed to create override" }, { status: 500 });
       }
+
       return NextResponse.json({ ok: true, version: 1 });
     }
 
@@ -86,7 +88,7 @@ export async function POST(req: NextRequest) {
 
     const newVersion = existing.version + 1;
 
-    const { error: upErr } = await supabaseAdmin
+    const { error: upErr } = await db
       .from("comment_overrides")
       .update({
         ...patch,

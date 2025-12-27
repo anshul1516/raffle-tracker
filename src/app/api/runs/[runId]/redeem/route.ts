@@ -22,9 +22,11 @@ export async function POST(
       return NextResponse.json({ error: "code required" }, { status: 400 });
     }
 
+    const db = supabaseAdmin();
+
     const codeHash = hashCode(code.trim().toUpperCase());
 
-    const { data: codes, error } = await supabaseAdmin
+    const { data: codes, error } = await db
       .from("run_access_codes")
       .select("*")
       .eq("run_id", runId)
@@ -43,11 +45,10 @@ export async function POST(
       return NextResponse.json({ error: "Code expired" }, { status: 401 });
     }
 
-    // Create session token valid for 7 days
     const token = randomToken();
     const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
 
-    const { error: sErr } = await supabaseAdmin.from("run_sessions").insert({
+    const { error: sErr } = await db.from("run_sessions").insert({
       run_id: runId,
       token,
       role: match.role,
@@ -59,11 +60,7 @@ export async function POST(
       return NextResponse.json({ error: "Failed to create session" }, { status: 500 });
     }
 
-    return NextResponse.json({
-      token,
-      role: match.role,
-      expiresAt,
-    });
+    return NextResponse.json({ token, role: match.role, expiresAt });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

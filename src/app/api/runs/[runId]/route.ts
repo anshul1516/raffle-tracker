@@ -8,29 +8,35 @@ export async function GET(
   try {
     const { runId } = await context.params;
     const token = req.nextUrl.searchParams.get("t");
+    if (!token) return NextResponse.json({ error: "Missing token" }, { status: 401 });
 
-    if (!token) {
-      return NextResponse.json({ error: "Missing token" }, { status: 401 });
-    }
+    const db = supabaseAdmin();
 
-    const { data: access } = await supabaseAdmin
+    const { data: access, error: aErr } = await db
       .from("run_access")
       .select("*")
       .eq("run_id", runId)
       .eq("token", token)
       .maybeSingle();
 
-    if (!access) {
-      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    if (aErr) {
+      console.error(aErr);
+      return NextResponse.json({ error: "Auth check failed" }, { status: 500 });
     }
+    if (!access) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
 
-    const { data: run } = await supabaseAdmin
+    const { data: run, error: rErr } = await db
       .from("runs")
       .select("*")
       .eq("id", runId)
       .single();
 
-    const { data: comments } = await supabaseAdmin
+    if (rErr) {
+      console.error(rErr);
+      return NextResponse.json({ error: "Failed to load run" }, { status: 500 });
+    }
+
+    const { data: comments, error: cErr } = await db
       .from("comments")
       .select(
         `
@@ -45,6 +51,11 @@ export async function GET(
       `
       )
       .eq("run_id", runId);
+
+    if (cErr) {
+      console.error(cErr);
+      return NextResponse.json({ error: "Failed to load comments" }, { status: 500 });
+    }
 
     return NextResponse.json({ run, comments });
   } catch (err) {
