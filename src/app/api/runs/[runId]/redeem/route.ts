@@ -16,8 +16,8 @@ export async function POST(
 ) {
   try {
     const { runId } = await context.params;
-
     const { code } = await req.json();
+
     if (!code || typeof code !== "string") {
       return NextResponse.json({ error: "code required" }, { status: 400 });
     }

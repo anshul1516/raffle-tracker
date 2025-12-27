@@ -5,7 +5,6 @@ export async function POST(req: NextRequest) {
     const { url } = await req.json();
     if (!url) return NextResponse.json({ error: "url required" }, { status: 400 });
 
-    // Forward to the new run-creation endpoint
     const res = await fetch(new URL("/api/runs", req.url), {
       method: "POST",
       headers: { "Content-Type": "application/json" },

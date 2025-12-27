@@ -17,12 +17,9 @@ export async function POST(
 ) {
   try {
     const { runId } = await context.params;
-
     const { adminCode, role, label } = await req.json();
 
-    if (!adminCode) {
-      return NextResponse.json({ error: "adminCode required" }, { status: 400 });
-    }
+    if (!adminCode) return NextResponse.json({ error: "adminCode required" }, { status: 400 });
     if (!role || !["viewer", "editor"].includes(role)) {
       return NextResponse.json({ error: "role must be viewer or editor" }, { status: 400 });
     }
@@ -43,9 +40,7 @@ export async function POST(
       console.error(error);
       return NextResponse.json({ error: "Failed to verify admin code" }, { status: 500 });
     }
-    if (!codes || !codes.length) {
-      return NextResponse.json({ error: "Invalid admin code" }, { status: 401 });
-    }
+    if (!codes || !codes.length) return NextResponse.json({ error: "Invalid admin code" }, { status: 401 });
 
     const inviteCode = randomCode();
     const inviteHash = hashCode(inviteCode);

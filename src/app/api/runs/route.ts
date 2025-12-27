@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to create run" }, { status: 500 });
     }
 
-    // Create admin invite code
+    // Create admin code
     const adminCode = randomCode();
     const adminHash = hashCode(adminCode);
 
@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to create admin code" }, { status: 500 });
     }
 
-    // Upsert parsed comments into comments table
+    // Upsert comments
     const toUpsert = comments.map((c: any) => {
       const parsedC = parseComment(c.body, c.author, c.comment_id);
       return {
